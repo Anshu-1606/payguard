@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PayGuard</title>
+<style>
+  :root { --bg:#f5f7fa; --card:#ffffff; --text:#1c2430; --muted:#6b7686; --line:#e3e8ef;
+          --high:#d92d20; --med:#dc8a00; --low:#12853f; --brand:#0b5cff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#10141b; --card:#1a212c; --text:#e8edf4; --muted:#9aa6b6; --line:#2a3342; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Segoe UI, Arial, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:20px 28px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }
+  h1 { margin:0; font-size:22px; }
+  h1 small { display:block; font-size:13px; font-weight:400; color:var(--muted); margin-top:2px; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; }
+  button { font:inherit; border:0; border-radius:8px; padding:9px 14px; cursor:pointer; color:#fff; background:var(--brand); }
+  button.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  button.ok { background:var(--low); } button.bad { background:var(--high); }
+  button:disabled { opacity:.5; cursor:wait; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; padding:0 28px 18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card .n { font-size:28px; font-weight:700; margin-top:4px; }
+  .card .l { color:var(--muted); font-size:13px; }
+  main { padding:0 28px 40px; }
+  .wrap { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; min-width:820px; }
+  th, td { text-align:left; padding:12px 14px; border-bottom:1px solid var(--line); vertical-align:top; font-size:14px; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  tr:last-child td { border-bottom:0; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:700; color:#fff; }
+  .HIGH { background:var(--high); } .MEDIUM { background:var(--med); } .LOW { background:var(--low); }
+  .status { font-weight:600; }
+  .why { color:var(--muted); font-size:13px; max-width:380px; line-height:1.4; }
+  .why b { color:var(--text); }
+  .oid { font-family: ui-monospace, Consolas, monospace; font-size:12px; color:var(--muted); }
+  .tag { display:inline-block; margin-top:4px; padding:1px 7px; border-radius:6px; font-size:11px; font-weight:700;
+         background:var(--brand); color:#fff; }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .actions button { padding:6px 10px; font-size:13px; }
+  .empty { padding:40px; text-align:center; color:var(--muted); }
+  .note { color:var(--muted); font-size:12px; padding:14px 28px 30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PayGuard<small>AI fraud guard for small merchants · PayPal Sandbox</small></h1>
+  <div class="toolbar">
+    <button id="simBtn" onclick="simulate()">Simulate 8 payments</button>
+    <button onclick="liveCheckout('normal', 49.99)">Live checkout: normal buyer</button>
+    <button class="bad" onclick="liveCheckout('suspicious', 399)">Live checkout: suspicious buyer</button>
+    <button class="ghost" onclick="clearAll()">Clear</button>
+  </div>
+</header>
+
+<section class="cards">
+  <div class="card"><div class="l">Payments scored</div><div class="n" id="cTotal">0</div></div>
+  <div class="card"><div class="l">Flagged (high + medium)</div><div class="n" id="cFlag">0</div></div>
+  <div class="card"><div class="l">Held / refunded</div><div class="n" id="cHeld">0</div></div>
+  <div class="card"><div class="l">Amount protected</div><div class="n" id="cMoney">$0</div></div>
+</section>
+
+<main>
+  <div class="wrap">
+    <table>
+      <thead><tr><th>Risk</th><th>Order</th><th>Amount</th><th>Why (AI explanation)</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="6" class="empty">No payments yet. Click “Simulate 8 payments” or start a live checkout.</td></tr></tbody>
+    </table>
+  </div>
+</main>
+<p class="note">Demo data: buyer details are simulated. Every order is a real PayPal Sandbox order (test money only).</p>
+
+<script>
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let orders = [];
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    let msg = path + " failed: " + r.status;
+    try { const j = await r.json(); if (j.detail) msg += " - " + j.detail; } catch (_) {}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+async function load() {
+  orders = await api('/api/orders');
+  render();
+}
+
+function render() {
+  const flagged = orders.filter(o => o.risk !== 'LOW');
+  const protectedOrders = orders.filter(o => o.status === 'HELD' || o.status === 'REFUNDED');
+  document.getElementById('cTotal').textContent = orders.length;
+  document.getElementById('cFlag').textContent = flagged.length;
+  document.getElementById('cHeld').textContent = protectedOrders.length;
+  document.getElementById('cMoney').textContent =
+    '$' + protectedOrders.reduce((s, o) => s + o.features.amount, 0).toFixed(0);
+
+  const rows = document.getElementById('rows');
+  if (!orders.length) {
+    rows.innerHTML = '<tr><td colspan="6" class="empty">No payments yet. Click “Simulate 8 payments” or start a live checkout.</td></tr>';
+    return;
+  }
+  rows.innerHTML = orders.map(o => {
+    const why = o.explanation
+      ? `${esc(o.explanation.explanation)} <br><b>Suggested: ${esc(o.explanation.recommended_action)}</b> <span class="oid">(${esc(o.explanation.source)})</span>`
+      : (o.risk === 'LOW' ? 'Looks normal.' : `<button class="ghost" onclick="explain('${o.order_id}')">Explain</button>`);
+
+    let actions = '';
+    if (o.capture_id && !o.refunded) {
+      actions = `<button class="bad" onclick="refund('${o.order_id}')">Refund via PayPal</button>`;
+    } else if (!o.live) {
+      actions = `<button class="ok" onclick="decide('${o.order_id}','approve')">Approve</button>
+                 <button class="bad" onclick="decide('${o.order_id}','hold')">Hold</button>`;
+    }
+
+    return `<tr>
+      <td><span class="pill ${o.risk}">${o.risk}</span><div class="oid">${o.score}</div></td>
+      <td class="oid">${esc(o.order_id)}${o.live ? '<br><span class="tag">LIVE</span>' : ''}</td>
+      <td>$${o.features.amount.toFixed(2)}</td>
+      <td class="why">${why}</td>
+      <td class="status">${esc(o.status)}</td>
+      <td><div class="actions">${actions}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function simulate() {
+  const b = document.getElementById('simBtn');
+  b.disabled = true; b.textContent = 'Creating sandbox orders…';
+  try {
+    await api('/api/simulate?n=8', {method:'POST'});
+    await load();
+    await autoExplain();
+  } catch (e) { alert(e.message); }
+  b.disabled = false; b.textContent = 'Simulate 8 payments';
+}
+
+async function explain(id, reload = true) {
+  try { await api('/api/orders/' + id + '/explain'); if (reload) await load(); }
+  catch (e) { console.error(e); }
+}
+
+async function autoExplain() {
+  for (const o of orders.filter(x => x.risk !== 'LOW' && !x.explanation)) {
+    await explain(o.order_id, false);
+  }
+  await load();
+}
+
+async function decide(id, action) {
+  try { await api('/api/orders/' + id + '/decision?action=' + action, {method:'POST'}); await load(); }
+  catch (e) { alert(e.message); }
+}
+
+async function clearAll() {
+  await api('/api/orders', {method:'DELETE'});
+  await load();
+}
+
+async function liveCheckout(profile, amount) {
+  try {
+    const r = await api('/api/checkout?profile=' + profile + '&amount=' + amount, {method:'POST'});
+    window.location.href = r.approve_url;   // go to PayPal, log in as the BUYER, then pay
+  } catch (e) { alert(e.message); }
+}
+
+async function refund(id) {
+  if (!confirm('Refund this payment through PayPal?')) return;
+  try { await api('/api/orders/' + id + '/refund', {method:'POST'}); await load(); }
+  catch (e) { alert('Refund failed: ' + e.message); }
+}
+
+load().then(autoExplain);
+</script>
+</body>
+</html>
