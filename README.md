@@ -1,5 +1,6 @@
 # PayGuard: AI fraud guard for small merchants
 
+
 PayGuard watches PayPal payments, scores each one for fraud risk with a machine learning model,
 explains the risk in plain English with an LLM, and lets the merchant approve, hold or refund.
 
@@ -17,6 +18,9 @@ Python, FastAPI, scikit-learn, Gemini API, PayPal Sandbox REST API.
 2. Create `.env` with PAYPAL_CLIENT_ID, PAYPAL_SECRET, PAYPAL_BASE=https://api-m.sandbox.paypal.com, GEMINI_API_KEY
 3. `python generate_data.py` then `python train_model.py`
 4. `uvicorn main:app --reload` and open http://127.0.0.1:8000
+
+
+Watch the demo: https://youtu.be/89xGN59Dz74
 
 ## Notes
 - Training data is **simulated**; real-world performance would differ.
